@@ -1,9 +1,10 @@
 """
-Swing Trade Calculator
+SWING Trade Calculator
 ====================
+Extracted from SWING_Cal.xlsx (SWING2026 sheet)
 
 Risk Logic Reverse-Engineered from Spreadsheet:
-  ─ Risk per trade = $200 
+  ─ Risk per trade = $200 (consistent across all April 2026 active trades)
     e.g. AROC: 160 shares × $1.245 = $199.20, WFC: 40 × $5.00 = $200,
          VICI: 170 × $1.17 = $198.90, MS: 26 × $7.49 = $199.74
 
@@ -164,7 +165,7 @@ with st.sidebar:
     st.caption(f"💡 Implied capital @ 1% risk: **${risk_per_trade*100:,.0f}**")
     st.markdown("---")
     st.markdown("**Buffer logic (from SWING system):**")
-    st.code("Long:  Max Entry = (Entry + ATR) × 0.95\nShort: Max Entry = (Entry − ATR) × 1.05")
+    st.code("Long:  Max Entry = SL + ATR − $0.05\nShort: Max Entry = SL − ATR + $0.05")
 
 # ── input form ──────────────────────────────────────────────────────────────
 st.markdown('<div class="section-label">Trade Setup</div>', unsafe_allow_html=True)
@@ -217,10 +218,13 @@ if calculate or True:  # live recalc always
         atr_diff    = atr - one_r                       # col W: =V-U
 
         # Max Entry Buffer
+        # Long:  entry must not exceed SL + ATR − $0.05
+        # Short: entry must not go below SL − ATR + $0.05
+        BUFFER = 0.05
         if is_long:
-            max_entry = (entry + atr) * 0.95
+            max_entry = stop + atr - BUFFER
         else:
-            max_entry = (entry - atr) * 1.05
+            max_entry = stop - atr + BUFFER
 
         # ATR adequacy check (ATR should be > 1R for quality setups)
         atr_ok = atr_diff > 0
@@ -342,8 +346,8 @@ TP2 = Entry {'+ 1.8R' if is_long else '− 1.8R'} = {entry:.2f} {'+ ' if is_long
 
 **Max Entry Buffer** (SWING system rule)
 ```
-{'Long:  Max Entry = (Entry + ATR) × 0.95' if is_long else 'Short: Max Entry = (Entry − ATR) × 1.05'}
-             = ({entry:.2f} {'+ ' if is_long else '− '}{atr:.3f}) × {'0.95' if is_long else '1.05'}
+{'Long:  Max Entry = SL + ATR − $0.05' if is_long else 'Short: Max Entry = SL − ATR + $0.05'}
+             = {stop:.2f} {'+ ' if is_long else '− '}{atr:.3f} {'− ' if is_long else '+ '}0.05
              = {max_entry:.4f}
 ```
 
