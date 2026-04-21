@@ -152,14 +152,14 @@ st.markdown("""
 with st.sidebar:
     st.markdown("### ⚙️ Portfolio Settings")
     st.caption("Risk per trade extracted from SWING_Cal.xlsx — "
-               "Jan-Mar 2026 trades averaged **~$100**, "
-               "April 2026 active trades average **~$200**, "
-               "suggesting capital was doubled ~Feb 2026.")
+               "risk $200 "
+               "max 40 trades, "
+               "max 3000 accumulative loss")
     risk_per_trade = st.number_input(
         "Risk Per Trade ($)",
         min_value=1.0, max_value=100000.0,
         value=200.0, step=50.0,
-        help="Extracted: Jan-Mar ≈$100/trade, Apr 2026 ≈$200/trade (current)"
+        help="Extracted: swing_cal.xlsx"
     )
     st.caption(f"💡 Implied capital @ 1% risk: **${risk_per_trade*100:,.0f}**")
     st.markdown("---")
@@ -350,7 +350,7 @@ TP2 = Entry {'+ 1.8R' if is_long else '− 1.8R'} = {entry:.2f} {'+ ' if is_long
              = {max_entry:.4f}
 ```
 
-**Risk extracted from SWING_Cal.xlsx** — Apr 2026 active trades:
+**Risk extracted from SWING_Cal.xlsx** — example:
 | Trade | Shares | ΔPrice | Risk |
 |---|---|---|---|
 | AROC | 160 | $1.245 | $199.20 |
