@@ -1,10 +1,9 @@
 """
 SWING Trade Calculator
 ====================
-Extracted from SWING_Cal.xlsx (SWING2026 sheet)
 
 Risk Logic Reverse-Engineered from Spreadsheet:
-  ─ Risk per trade = $200 (consistent across all April 2026 active trades)
+  ─ Risk per trade = $200 
     e.g. AROC: 160 shares × $1.245 = $199.20, WFC: 40 × $5.00 = $200,
          VICI: 170 × $1.17 = $198.90, MS: 26 × $7.49 = $199.74
 
