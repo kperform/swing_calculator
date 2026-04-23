@@ -1,15 +1,20 @@
 """
-SWING Trade Calculator
+SWING Calculator
 ====================
 
-Risk Logic Reverse-Engineered from Spreadsheet:
-  ─ Risk per trade = $200 
+Risk Logic:
+  ─ Risk per trade = Capital × Risk %
+    Default: $100,000 × 0.2% = $200/trade
     e.g. AROC: 160 shares × $1.245 = $199.20, WFC: 40 × $5.00 = $200,
          VICI: 170 × $1.17 = $198.90, MS: 26 × $7.49 = $199.74
 
 Max Entry Buffer Logic (from SWING system rules):
-  ─ Long:  Max Entry = (Entry + ATR) × 0.95   → 5% buffer below (Entry+ATR)
-  ─ Short: Max Entry = (Entry − ATR) × 1.05   → 5% buffer above (Entry−ATR)
+  ─ Long:  Max Entry = (Stop + ATR) × (1 − Buffer%)   → default 5% buffer
+  ─ Short: Max Entry = (Stop − ATR) × (1 + Buffer%)   → default 5% buffer
+
+Profit Targets (configurable, defaults: P1 = 1R, P2 = 1.8R):
+  ─ Long:  TP1 = Entry + P1×1R  |  TP2 = Entry + P2×1R
+  ─ Short: TP1 = Entry − P1×1R  |  TP2 = Entry − P2×1R
 """
 
 import math
@@ -151,20 +156,70 @@ st.markdown("""
 # ── settings sidebar ────────────────────────────────────────────────────────
 with st.sidebar:
     st.markdown("### ⚙️ Portfolio Settings")
-    st.caption("Risk per trade extracted from SWING_Cal.xlsx — "
-               "risk $200 "
-               "max 40 trades, "
-               "max 3000 accumulative loss")
-    risk_per_trade = st.number_input(
-        "Risk Per Trade ($)",
-        min_value=1.0, max_value=100000.0,
-        value=200.0, step=50.0,
-        help="Extracted: swing_cal.xlsx"
+    st.caption("All fields are optional — defaults match the original SWING_Cal.xlsx settings.")
+
+    # ── Capital & Risk ──────────────────────────────────────────────────────
+    st.markdown("#### 💼 Capital & Risk")
+    capital = st.number_input(
+        "Account Capital ($)",
+        min_value=1000.0, max_value=100_000_000.0,
+        value=100_000.0, step=5000.0,
+        format="%.0f",
+        help="Total trading capital. Default: $100,000"
     )
-    st.caption(f"💡 Implied capital @ 1% risk: **${risk_per_trade*100:,.0f}**")
+    risk_pct = st.number_input(
+        "Risk Per Trade (%)",
+        min_value=0.01, max_value=10.0,
+        value=0.20, step=0.05,
+        format="%.2f",
+        help="Percentage of capital risked per trade. Default: 0.20% → $200 on $100k"
+    )
+    risk_per_trade = capital * (risk_pct / 100)
+    st.caption(f"💡 Risk per trade: **${risk_per_trade:,.2f}**  "
+               f"({risk_pct:.2f}% of ${capital:,.0f})")
+
     st.markdown("---")
-    st.markdown("**Buffer logic (from SWING system):**")
-    st.code("Long:  Max Entry = SL + ATR − $0.05\nShort: Max Entry = SL − ATR + $0.05")
+
+    # ── ATR Buffer ──────────────────────────────────────────────────────────
+    st.markdown("#### 🛡️ ATR Entry Buffer")
+    buffer_pct = st.number_input(
+        "Max Entry Buffer (%)",
+        min_value=0.0, max_value=50.0,
+        value=5.0, step=0.5,
+        format="%.1f",
+        help=(
+            "Buffer applied to the ATR boundary to define the max allowable entry.\n"
+            "Default: 5%\n"
+            "Long:  Max Entry = (Stop + ATR) × (1 − Buffer%)\n"
+            "Short: Max Entry = (Stop − ATR) × (1 + Buffer%)"
+        )
+    )
+
+    st.markdown("---")
+
+    # ── Profit Targets ──────────────────────────────────────────────────────
+    st.markdown("#### 🎯 Profit Target Ratios")
+    p1_ratio = st.number_input(
+        "P1 Target (×R)",
+        min_value=0.1, max_value=20.0,
+        value=1.0, step=0.1,
+        format="%.1f",
+        help="First profit target as a multiple of 1R. Default: 1.0 (1:1)"
+    )
+    p2_ratio = st.number_input(
+        "P2 Target (×R)",
+        min_value=0.1, max_value=20.0,
+        value=1.8, step=0.1,
+        format="%.1f",
+        help="Second profit target as a multiple of 1R. Default: 1.8 (1:1.8)"
+    )
+
+    st.markdown("---")
+    st.markdown("**Buffer formula (SWING system):**")
+    st.code(
+        f"Long:  Max Entry = (SL + ATR) × {1 - buffer_pct/100:.4f}\n"
+        f"Short: Max Entry = (SL − ATR) × {1 + buffer_pct/100:.4f}"
+    )
 
 # ── input form ──────────────────────────────────────────────────────────────
 st.markdown('<div class="section-label">Trade Setup</div>', unsafe_allow_html=True)
@@ -190,7 +245,6 @@ if calculate or True:  # live recalc always
     is_long = direction == "Long"
     per_share_risk = entry - stop if is_long else stop - entry
     valid = per_share_risk > 0
-    entry_valid_atr = (entry < entry + atr) if is_long else (entry > entry - atr)
 
     if not valid:
         st.markdown(f"""
@@ -199,38 +253,43 @@ if calculate or True:  # live recalc always
           Adjust your inputs.
         </div>""", unsafe_allow_html=True)
     else:
-        # Core calcs — matching spreadsheet exactly
+        # ── Core calcs ──────────────────────────────────────────────────────
         shares_raw = risk_per_trade / per_share_risk
         shares = math.floor(shares_raw)
         actual_risk = shares * per_share_risk
 
-        one_r      = per_share_risk                     # col J: per-share
-        one_eight_r = one_r * 1.8                       # col K
-        tp1        = entry + one_r                      # col L: =J+G  (Long)
-        tp2        = entry + one_eight_r                # col M: =K+G  (Long)
-        if not is_long:
-            tp1 = entry - one_r
-            tp2 = entry - one_eight_r
+        one_r       = per_share_risk                      # 1R per share
+        p1_r        = one_r * p1_ratio                    # P1 per share (default 1R)
+        p2_r        = one_r * p2_ratio                    # P2 per share (default 1.8R)
 
-        max_profit  = one_eight_r * shares              # col N (for Long; positive)
-        capital_used = entry * shares                   # col X
-        atr_diff    = atr - one_r                       # col W: =V-U
-
-        # Max Entry Buffer
-        # Long:  entry must not exceed SL + ATR − $0.05
-        # Short: entry must not go below SL − ATR + $0.05
-        BUFFER = 0.05
         if is_long:
-            max_entry = stop + atr - BUFFER
+            tp1 = entry + p1_r
+            tp2 = entry + p2_r
         else:
-            max_entry = stop - atr + BUFFER
+            tp1 = entry - p1_r
+            tp2 = entry - p2_r
+
+        max_profit   = p2_r * shares                      # max profit at TP2
+        capital_used = entry * shares                     # capital deployed
+        atr_diff     = atr - one_r                        # ATR vs 1R spread
+
+        # ── Max Entry Buffer ─────────────────────────────────────────────────
+        # Long:  Max Entry = (Stop + ATR) × (1 − buffer_pct/100)
+        # Short: Max Entry = (Stop − ATR) × (1 + buffer_pct/100)
+        buf_multiplier_long  = 1 - (buffer_pct / 100)
+        buf_multiplier_short = 1 + (buffer_pct / 100)
+
+        if is_long:
+            max_entry = (stop + atr) * buf_multiplier_long
+        else:
+            max_entry = (stop - atr) * buf_multiplier_short
 
         # ATR adequacy check (ATR should be > 1R for quality setups)
         atr_ok = atr_diff > 0
 
-        # ── shares highlight ───────────────────────────────────────────────
+        # ── Shares highlight ─────────────────────────────────────────────────
         shares_display = f"{shares:,}" if is_long else f"−{shares:,}"
-        shares_color = "green" if is_long else "red"
+        shares_color   = "green" if is_long else "red"
 
         st.markdown(f"""
         <div class="big-num">
@@ -238,8 +297,8 @@ if calculate or True:  # live recalc always
           <div class="value {shares_color}">{shares_display}</div>
         </div>""", unsafe_allow_html=True)
 
-        # ── mini stats row ─────────────────────────────────────────────────
-        rr_ratio = one_eight_r / one_r  # always 1.8
+        # ── Mini stats row ───────────────────────────────────────────────────
+        rr_display = f"{p1_ratio:.1f}R / {p2_ratio:.1f}R"
         st.markdown(f"""
         <div class="grid2">
           <div class="mini-card">
@@ -247,27 +306,29 @@ if calculate or True:  # live recalc always
             <div class="value red">${actual_risk:,.2f}</div>
           </div>
           <div class="mini-card">
-            <div class="label">R:R Ratio</div>
-            <div class="value green">{rr_ratio:.1f}R</div>
+            <div class="label">P1 / P2 Ratio</div>
+            <div class="value green">{rr_display}</div>
           </div>
           <div class="mini-card">
             <div class="label">Capital Used</div>
             <div class="value blue">${capital_used:,.2f}</div>
           </div>
           <div class="mini-card">
-            <div class="label">Max Profit</div>
+            <div class="label">Max Profit (P2)</div>
             <div class="value green">${max_profit:,.2f}</div>
           </div>
         </div>""", unsafe_allow_html=True)
 
-        # ── max entry buffer alert ─────────────────────────────────────────
+        # ── Max entry buffer alert ───────────────────────────────────────────
         entry_within_buffer = (entry <= max_entry) if is_long else (entry >= max_entry)
-        buffer_class = "ok" if entry_within_buffer else "warn"
-        buffer_icon  = "✅" if entry_within_buffer else "⚠️"
+        buffer_class = "ok"   if entry_within_buffer else "warn"
+        buffer_icon  = "✅"   if entry_within_buffer else "⚠️"
         buffer_msg   = (
-            f"Entry is within the {'Long' if is_long else 'Short'} buffer zone."
+            f"Entry is within the {'Long' if is_long else 'Short'} buffer zone "
+            f"({buffer_pct:.1f}% buffer applied)."
             if entry_within_buffer
-            else f"⚠️ Entry {'exceeds' if is_long else 'is below'} the max buffer — "
+            else f"⚠️ Entry {'exceeds' if is_long else 'is below'} the max buffer "
+                 f"({buffer_pct:.1f}%) — "
                  f"{'chasing too far above ATR range' if is_long else 'chasing too far below ATR range'}!"
         )
         st.markdown(f"""
@@ -275,7 +336,7 @@ if calculate or True:  # live recalc always
           {buffer_icon} {buffer_msg}
         </div>""", unsafe_allow_html=True)
 
-        # ── ATR quality check ───────────────────────────────────────────────
+        # ── ATR quality check ────────────────────────────────────────────────
         atr_class = "ok" if atr_ok else "warn"
         atr_msg   = (
             f"ATR ({atr:.3f}) > 1R ({one_r:.3f}) — ATR Diff: +{atr_diff:.3f}. Quality setup."
@@ -289,25 +350,28 @@ if calculate or True:  # live recalc always
           {'📐' if atr_ok else '⚡'} {atr_msg}
         </div>""", unsafe_allow_html=True)
 
-        # ── detailed breakdown ──────────────────────────────────────────────
+        # ── Detailed breakdown ───────────────────────────────────────────────
         st.markdown('<div class="section-label">Full Breakdown</div>', unsafe_allow_html=True)
 
         rows_prices = [
-            ("Entry Price",             fmt(entry),          "blue"),
-            ("Stop Loss",               fmt(stop),           "red"),
-            ("Target P1 (1R)",          fmt(tp1),            "green"),
-            ("Target P2 (1.8R)",        fmt(tp2),            "green"),
-            ("Max Entry Boundary",      fmt(max_entry),      "orange"),
+            ("Entry Price",                              fmt(entry),     "blue"),
+            ("Stop Loss",                                fmt(stop),      "red"),
+            (f"Target P1 (1:{p1_ratio:.1f}R)",          fmt(tp1),       "green"),
+            (f"Target P2 (1:{p2_ratio:.1f}R)",          fmt(tp2),       "green"),
+            (f"Max Entry Boundary ({buffer_pct:.1f}%)", fmt(max_entry), "orange"),
         ]
 
         rows_risk = [
-            ("Per-Share Risk (1R)",     fmt(one_r),          ""),
-            ("Per-Share 1.8R",          fmt(one_eight_r),    ""),
-            ("Actual Dollar Risk",      fmt(actual_risk),    "red"),
-            ("Max Profit @ TP2",        fmt(max_profit),     "green"),
-            ("Capital Deployed",        fmt(capital_used),   "blue"),
-            ("ATR",                     fmt(atr, prefix="", decimals=3), ""),
-            ("ATR Diff (ATR − 1R)",     f"{'+'if atr_diff>0 else ''}{atr_diff:.3f}", "green" if atr_diff>0 else "red"),
+            ("Per-Share Risk (1R)",                      fmt(one_r),                          ""),
+            (f"Per-Share P1 ({p1_ratio:.1f}R)",          fmt(p1_r),                           ""),
+            (f"Per-Share P2 ({p2_ratio:.1f}R)",          fmt(p2_r),                           ""),
+            ("Actual Dollar Risk",                        fmt(actual_risk),                    "red"),
+            ("Max Profit @ P2",                          fmt(max_profit),                     "green"),
+            ("Capital Deployed",                         fmt(capital_used),                   "blue"),
+            (f"Risk % of Capital",                       f"{(actual_risk/capital)*100:.3f}%", ""),
+            ("ATR",                                      fmt(atr, prefix="", decimals=3),     ""),
+            ("ATR Diff (ATR − 1R)",                      f"{'+'if atr_diff>0 else ''}{atr_diff:.3f}",
+                                                         "green" if atr_diff > 0 else "red"),
         ]
 
         def render_card(title_icon, title_text, rows):
@@ -327,30 +391,35 @@ if calculate or True:  # live recalc always
         render_card("💰", "Price Levels", rows_prices)
         render_card("📐", "Risk & Sizing", rows_risk)
 
-        # ── formula reference ───────────────────────────────────────────────
+        # ── Formula reference ────────────────────────────────────────────────
         with st.expander("📋 Formulas & Logic Reference", expanded=False):
             st.markdown(f"""
 **Shares** (from spreadsheet pattern)
 ```
-{'Long' if is_long else 'Short'} Shares = floor({risk_per_trade:.0f} / |{entry:.2f} − {stop:.2f}|)
-                = floor({risk_per_trade:.0f} / {per_share_risk:.4f})
+{'Long' if is_long else 'Short'} Shares = floor({risk_per_trade:.2f} / |{entry:.2f} − {stop:.2f}|)
+                = floor({risk_per_trade:.2f} / {per_share_risk:.4f})
                 = {shares:,}
 ```
 
-**Targets** (col L, M in SWING_Cal.xlsx)
+**Risk Per Trade** (from sidebar settings)
 ```
-TP1 = Entry {'+ 1R' if is_long else '− 1R'} = {entry:.2f} {'+ ' if is_long else '− '}{one_r:.4f} = {tp1:.4f}
-TP2 = Entry {'+ 1.8R' if is_long else '− 1.8R'} = {entry:.2f} {'+ ' if is_long else '− '}{one_eight_r:.4f} = {tp2:.4f}
+Risk = ${capital:,.0f} × {risk_pct:.2f}% = ${risk_per_trade:,.2f}
 ```
 
-**Max Entry Buffer** (SWING system rule)
+**Targets** (configurable P1 / P2 ratios)
 ```
-{'Long:  Max Entry = SL + ATR − $0.05' if is_long else 'Short: Max Entry = SL − ATR + $0.05'}
-             = {stop:.2f} {'+ ' if is_long else '− '}{atr:.3f} {'− ' if is_long else '+ '}0.05
+TP1 = Entry {'+ ' if is_long else '− '}P1×1R = {entry:.2f} {'+ ' if is_long else '− '}{p1_ratio:.1f}×{one_r:.4f} = {tp1:.4f}
+TP2 = Entry {'+ ' if is_long else '− '}P2×1R = {entry:.2f} {'+ ' if is_long else '− '}{p2_ratio:.1f}×{one_r:.4f} = {tp2:.4f}
+```
+
+**Max Entry Buffer** ({buffer_pct:.1f}% — configurable in sidebar)
+```
+{'Long:  Max Entry = (Stop + ATR) × (1 − buffer%)' if is_long else 'Short: Max Entry = (Stop − ATR) × (1 + buffer%)'}
+             = ({stop:.2f} {'+ ' if is_long else '− '}{atr:.3f}) × {buf_multiplier_long if is_long else buf_multiplier_short:.4f}
              = {max_entry:.4f}
 ```
 
-**Risk extracted from SWING_Cal.xlsx** — example:
+**Risk extracted from sample trades:
 | Trade | Shares | ΔPrice | Risk |
 |---|---|---|---|
 | AROC | 160 | $1.245 | $199.20 |
@@ -359,12 +428,12 @@ TP2 = Entry {'+ 1.8R' if is_long else '− 1.8R'} = {entry:.2f} {'+ ' if is_long
 | MS   |  26 | $7.490 | $199.74 |
 | AAL  | 217 | $0.918 | $199.21 |
 
-→ **Consistent $200 risk per trade** (current setting)
+→ **Consistent $200 risk per trade** (0.2% of $100,000 — current default)
 """)
 
 # ── footer ───────────────────────────────────────────────────────────────────
-st.markdown("""
+st.markdown(f"""
 <div style="text-align:center;padding:24px 0 8px;font-size:0.68rem;color:#3d444d;">
   SWING Trade Calculator · Logic extracted from SWING_Cal.xlsx<br>
-  Change Risk Per Trade in ⚙️ Settings (sidebar)
+  Adjust Capital, Risk %, Buffer & P1/P2 Targets in ⚙️ Settings (sidebar)
 </div>""", unsafe_allow_html=True)
